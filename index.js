@@ -45,7 +45,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'users.user_email as _registrationEmail, '
             //+ prefix + 'users.user_rank as _level, '
             + prefix + 'users.user_regdate as _joindate, '
-            + prefix + 'users.user_email as _email '
+            + prefix + 'users.user_email as _email, '
             //+ prefix + 'banlist.ban_id as _banned '
             + prefix + 'users.user_sig as _signature, '
             + prefix + 'users.user_website as _website, '
@@ -137,7 +137,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
                     var map = [];
                     rows.forEach(function(row) {
-                        row._touid = _touid.substr(2);
+                        row._touid = row._touid.substr(2);
                         row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 
                         map[row._mid] = row;
