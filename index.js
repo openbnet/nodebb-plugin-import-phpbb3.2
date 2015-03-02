@@ -284,7 +284,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + 'FROM ' + prefix + 'posts '
 
 		    // remove first posts
-            + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'posts.post_id NOT IN (SELECT ' + prefix + 'topics.topics_first_post_id '
+            + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'posts.post_id NOT IN (SELECT ' + prefix + 'topics.topic_first_post_id '
                 + 'FROM ' + prefix + 'topics)'
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
