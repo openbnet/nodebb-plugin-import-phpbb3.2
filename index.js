@@ -142,6 +142,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
                         map[row._mid] = row;
                     });
+
+                    callback(null, map);
                 });
     };
 
@@ -285,7 +287,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
 		    // remove first posts
             + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'posts.post_id NOT IN (SELECT ' + prefix + 'topics.topic_first_post_id '
-                + 'FROM ' + prefix + 'topics)'
+                + 'FROM ' + prefix + 'topics) '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
         if (!Exporter.connection) {
@@ -309,6 +311,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 					row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 					map[row._pid] = row;
 				});
+
+                callback(null, map);
 
 			});
 
