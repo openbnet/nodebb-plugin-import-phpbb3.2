@@ -1,6 +1,6 @@
 {
   "name": "nodebb-plugin-import-phpbb",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A phpBB2 to NodeBB data exporter",
   "main": "./index.js",
   "scripts": {
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/psychobunny/nodebb-plugin-import-phpbb"
+    "url": "https://github.com/belstgut/nodebb-plugin-import-phpbb"
   },
   "keywords": [
     "phpbb",
@@ -24,7 +24,7 @@
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/psychobunny/nodebb-plugin-import-phpbb/issues"
+    "url": "https://github.com/belstgut/nodebb-plugin-import-phpbb/issues"
   },
   "dependencies": {
     "underscore": "~1.6.0",

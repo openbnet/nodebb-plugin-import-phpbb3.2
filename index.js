@@ -47,18 +47,18 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'users.user_regdate as _joindate, '
             + prefix + 'users.user_email as _email '
             //+ prefix + 'banlist.ban_id as _banned '
-            //+ prefix + 'USER_PROFILE.USER_SIGNATURE as _signature, '
-            //+ prefix + 'USER_PROFILE.USER_HOMEPAGE as _website, '
-            //+ prefix + 'USER_PROFILE.USER_OCCUPATION as _occupation, '
-            //+ prefix + 'USER_PROFILE.USER_LOCATION as _location, '
-            //+ prefix + 'USER_PROFILE.USER_AVATAR as _picture, '
-            //+ prefix + 'USER_PROFILE.USER_TITLE as _title, '
-            //+ prefix + 'USER_PROFILE.USER_RATING as _reputation, '
-            //+ prefix + 'USER_PROFILE.USER_TOTAL_RATES as _profileviews, '
-            //+ prefix + 'USER_PROFILE.USER_BIRTHDAY as _birthday '
+            + prefix + 'users.user_sig as _signature, '
+            + prefix + 'users.user_website as _website, '
+            //+ prefix + 'users.USER_OCCUPATION as _occupation, '
+            + prefix + 'users.user_from as _location, '
+            //+ prefix + 'users.USER_AVATAR as _picture, '
+            //+ prefix + 'users.USER_TITLE as _title, '
+            //+ prefix + 'users.USER_RATING as _reputation, '
+            //+ prefix + 'users.USER_TOTAL_RATES as _profileviews, '
+            + prefix + 'users.user_birthday as _birthday '
 
             + 'FROM ' + prefix + 'users '
-            + 'WHERE ' + prefix + 'users.user_id = ' + prefix + 'users.user_id '
+            + 'WHERE ' + prefix + 'users.user_type <> 2 AND ' + prefix + 'users.user_type <> 1 '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
 
@@ -88,8 +88,13 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                     // lower case the email for consistency
                     row._email = (row._email || '').toLowerCase();
 
+                    // location
+                    row._location = (row._location || '').trim();
+
+                    // birthday
+                    row._birthday = (row._birthday || '').split(' ').join('').replace(/(\d{2})-(\d{2})-(\d{4})/, "$2/$1/$3");
+
                     // I don't know about you about I noticed a lot my users have incomplete urls, urls like: http://
-                    row._picture = Exporter.validateUrl(row._picture);
                     row._website = Exporter.validateUrl(row._website);
 
                     map[row._uid] = row;
@@ -97,6 +102,47 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
                 callback(null, map);
             });
+    };
+
+    Exporter.getMessages = function(callback) {
+        return Exporter.getPaginatedMessages(0, -1, callback);
+    };
+    Exporter.getPaginatedMessages = function(start, limit, callback) {
+        callback = !_.isFunction(callback) ? noob : callback;
+
+        var err;
+        var prefix = Exporter.config('prefix');
+        var startms = +new Date();
+        var query = 'SELECT '
+            + prefix + 'privmsgs.msg_id as _mid, '
+            + prefix + 'privmsgs.author_id as _fromuid, '
+            + prefix + 'privmsgs.to_address as _touid, '
+            + prefix + 'privmsgs.message_text as _content, '
+            + prefix + 'privmsgs.message_time as _timestamp '
+            + 'FROM ' + prefix + 'privmsgs '
+            + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ', ' + limit : '');
+
+            if(!Exporter.connection) {
+                err = {error: 'MySQL connection is not setup. Run setup(config) first'};
+                Exporter.error(err.error);
+                return callback(err);
+            }
+
+            Exporter.connection.query(query,
+                function(err, rows) {
+                    if (err) {
+                        Exporter.error(err);
+                        return callback(err);
+                    }
+
+                    var map = [];
+                    rows.forEach(function(row) {
+                        row._touid = _touid.substr(2);
+                        row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+
+                        map[row._mid] = row;
+                    });
+                });
     };
 
     Exporter.getCategories = function(callback) {
@@ -113,6 +159,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'forums.forum_name as _name, '
             + prefix + 'forums.forum_desc as _description '
             + 'FROM ' + prefix + 'forums '
+            + 'WHERE ' + prefix + 'forums.forum_type <> 0 '
             +  (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
             
         if (!Exporter.connection) {
@@ -211,21 +258,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             });
     };
 
-	var getTopicsMainPids = function(callback) {
-		if (Exporter._topicsMainPids) {
-			return callback(null, Exporter._topicsMainPids);
-		}
-		Exporter.getPaginatedTopics(0, -1, function(err, topicsMap) {
-			if (err) return callback(err);
-
-			Exporter._topicsMainPids = {};
-			Object.keys(topicsMap).forEach(function(_tid) {
-				var topic = topicsMap[_tid];
-				Exporter._topicsMainPids[topic.topic_first_post_id] = topic._tid;
-			});
-			callback(null, Exporter._topicsMainPids);
-		});
-	};
     Exporter.getPosts = function(callback) {
         return Exporter.getPaginatedPosts(0, -1, callback);
     };
@@ -251,8 +283,9 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
             + 'FROM ' + prefix + 'posts '
 
-		    // the ones that are topics main posts are filtered below
-            + 'WHERE ' + prefix + 'posts.topic_id > 0 '
+		    // remove first posts
+            + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'posts.post_id NOT IN (SELECT ' + prefix + 'topics.topics_first_post_id '
+                + 'FROM ' + prefix + 'topics)'
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
         if (!Exporter.connection) {
@@ -267,20 +300,16 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 					Exporter.error(err);
 					return callback(err);
 				}
-				getTopicsMainPids(function(err, mpids) {
-					//normalize here
-					var map = {};
-					rows.forEach(function (row) {
-						// make it's not a topic
-						if (! mpids[row._pid]) {
-							row._content = row._content || '';
-							row._timestamp = ((row._timestamp || 0) * 1000) || startms;
-							map[row._pid] = row;
-						}
-					});
 
-					callback(null, map);
+				//normalize here
+				var map = {};
+				rows.forEach(function (row) {
+					// make it's not a topic
+					row._content = row._content || '';
+					row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+					map[row._pid] = row;
 				});
+
 			});
 
     };
