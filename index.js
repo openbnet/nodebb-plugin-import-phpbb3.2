@@ -2,6 +2,8 @@
 var async = require('async');
 var mysql = require('mysql');
 var _ = require('underscore');
+var Entities = require('html-entities').AllHtmlEntities;
+var entities = new Entities();
 var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb]';
 
@@ -80,7 +82,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 rows.forEach(function(row) {
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
-                    row._signature = Exporter.truncateStr(row._signature || '', 150);
+                    row._signature = entities.decode(Exporter.truncateStr(row._signature || '', 150));
 
                     // from unix timestamp (s) to JS timestamp (ms)
                     row._joindate = ((row._joindate || 0) * 1000) || startms;
@@ -120,7 +122,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'privmsgs.message_text as _content, '
             + prefix + 'privmsgs.message_time as _timestamp '
             + 'FROM ' + prefix + 'privmsgs '
-            + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ', ' + limit : '');
+            + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
             if(!Exporter.connection) {
                 err = {error: 'MySQL connection is not setup. Run setup(config) first'};
@@ -135,9 +137,10 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                         return callback(err);
                     }
 
-                    var map = [];
+                    var map = {};
                     rows.forEach(function(row) {
                         row._touid = row._touid.substr(2);
+                        row._content = entities.decode(row._content);
                         row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 
                         map[row._mid] = row;
@@ -180,8 +183,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-                    row._name = row._name || 'Untitled Category';
-                    row._description = row._description || 'No decsciption available';
+                    row._name = entities.decode(row._name || 'Untitled Category');
+                    row._description = entities.decode(row._description || 'No decscription available');
                     row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 
                     map[row._cid] = row;
@@ -250,8 +253,9 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-                    row._title = row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled';
+                    row._title = entities.decode(row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled');
                     row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+                    row._content = entities.decode(row._content);
 
                     map[row._tid] = row;
                 });
@@ -307,7 +311,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 				var map = {};
 				rows.forEach(function (row) {
 					// make it's not a topic
-					row._content = row._content || '';
+					row._content = entities.decode(row._content || '');
 					row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 					map[row._pid] = row;
 				});
