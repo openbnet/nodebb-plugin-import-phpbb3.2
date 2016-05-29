@@ -110,7 +110,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         return Exporter.getPaginatedMessages(0, -1, callback);
     };
     Exporter.getPaginatedMessages = function(start, limit, callback) {
-        callback = !_.isFunction(callback) ? noob : callback;
+        callback = !_.isFunction(callback) ? noop : callback;
 
         var err;
         var prefix = Exporter.config('prefix');
