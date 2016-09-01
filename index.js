@@ -42,15 +42,18 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'users.user_id as _uid, '
             + prefix + 'users.username as _username, '
             + prefix + 'users.username_clean as _alternativeUsername, '
+            + prefix + 'users.user_email as _registrationEmail, '
             + prefix + 'users.user_regdate as _joindate, '
+            + prefix + 'users.user_lastvisit as _lastonline, '
             + prefix + 'users.user_email as _email, '
             + prefix + 'users.user_allow_viewemail as _showemail, '
             + prefix + 'users.user_sig as _signature, '
             + prefix + 'users.user_website as _website, '
             + prefix + 'users.user_from as _location, '
-            // currently I'm not sure how importing avatars should be done
+            // not sure how importing avatars should be done
             //+ prefix + 'users.user_avatar as _picture, '
             + prefix + 'users.user_birthday as _birthday '
+
 
             + 'FROM ' + prefix + 'users '
             + 'WHERE ' + prefix + 'users.user_id = ' + prefix + 'users.user_id '
@@ -73,13 +76,15 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-                    // nodebb default max signature length is 255 characters
-		    // this should be read from the settings to avoid hardcoded limits
+                    // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
-                    row._signature = Exporter.truncateStr(row._signature || '', 255);
+                    row._signature = Exporter.truncateStr(row._signature || '', 2500);
 
                     // from unix timestamp (s) to JS timestamp (ms)
                     row._joindate = ((row._joindate || 0) * 1000) || startms;
+
+                    // from unix timestamp (s) to JS timestamp (ms)
+                    row._lastonline = ((row._lastonline || 0) * 1000) || startms;
 
                     // lower case the email for consistency
                     row._email = (row._email || '').toLowerCase();
@@ -87,10 +92,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                     // I don't know about you about I noticed a lot my users have incomplete urls, urls like: http://
                     row._picture = Exporter.validateUrl(row._picture);
                     row._website = Exporter.validateUrl(row._website);
-		    // location
-                    row._location = (row._location || '').trim();
-		    // remove spaces and reformat date to nodebb compatible one (mm/dd/yyy)
-                    row._birthday = (row._birthday || '').trim().replace(/(\d{1,2})-(\d{1,2})-(\d{4})/, "$2/$1/$3");
 
                     map[row._uid] = row;
                 });
@@ -98,7 +99,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 callback(null, map);
             });
     };
-
     Exporter.getMessages = function(callback) {
         return Exporter.getPaginatedMessages(0, -1, callback);
     };
@@ -132,9 +132,9 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
                     var map = {};
                     rows.forEach(function(row) {
-			// this replaces the strange phpbb uid with a simple single number
-			// please note that this also removes additional targets the message has been sent to
-			// nodebb currently doesn't allow to send chats to multiple users
+                        // this replaces the strange phpbb uid with a simple single number
+                        // please note that this also removes additional targets the message has been sent to
+                        // nodebb currently doesn't allow to send chats to multiple users
                         row._touid = row._touid.replace(/^u_([^:]+)(:.*)?$/, "$1");
                         row._content = (row._content || '');
                         row._timestamp = ((row._timestamp || 0) * 1000) || startms;
@@ -157,6 +157,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         var startms = +new Date();
         var query = 'SELECT '
             + prefix + 'forums.forum_id as _cid, '
+            + prefix + 'forums.parent_id as _parentCid, '
             + prefix + 'forums.forum_name as _name, '
             + prefix + 'forums.forum_desc as _description '
             + 'FROM ' + prefix + 'forums '
@@ -198,29 +199,37 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         var err;
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
-        var query = 'SELECT '
+        var query =
+            'SELECT '
             + prefix + 'topics.topic_id as _tid, '
             + prefix + 'topics.forum_id as _cid, '
+
             // this is the 'parent-post'
             // see https://github.com/akhoury/nodebb-plugin-import#important-note-on-topics-and-posts
             // I don't really need it since I just do a simple join and get its content, but I will include for the reference
             // remember this post EXCLUDED in the exportPosts() function
             + prefix + 'topics.topic_first_post_id as _pid, '
+
             + prefix + 'topics.topic_views as _viewcount, '
             + prefix + 'topics.topic_title as _title, '
             + prefix + 'topics.topic_time as _timestamp, '
+
             // maybe use that to skip
             + prefix + 'topics.topic_approved as _approved, '
+
             + prefix + 'topics.topic_status as _status, '
+            + prefix + 'topics.topic_type as _pinned, '
+
             //+ prefix + 'TOPICS.TOPIC_IS_STICKY as _pinned, '
             + prefix + 'posts.poster_id as _uid, '
             // this should be == to the _tid on top of this query
             + prefix + 'posts.topic_id as _post_tid, '
+
             // and there is the content I need !!
             + prefix + 'posts.post_text as _content '
 
             + 'FROM ' + prefix + 'topics, ' + prefix + 'posts '
-
+            // see
             + 'WHERE ' + prefix + 'topics.topic_first_post_id=' + prefix + 'posts.post_id '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
@@ -243,6 +252,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 rows.forEach(function(row) {
                     row._title = row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled';
                     row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+                    row._content = (row._content || 'no text');
 
                     map[row._tid] = row;
                 });
@@ -251,6 +261,21 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             });
     };
 
+	var getTopicsMainPids = function(callback) {
+		if (Exporter._topicsMainPids) {
+			return callback(null, Exporter._topicsMainPids);
+		}
+		Exporter.getPaginatedTopics(0, -1, function(err, topicsMap) {
+			if (err) return callback(err);
+
+			Exporter._topicsMainPids = {};
+			Object.keys(topicsMap).forEach(function(_tid) {
+				var topic = topicsMap[_tid];
+				Exporter._topicsMainPids[topic.topic_first_post_id] = topic._tid;
+			});
+			callback(null, Exporter._topicsMainPids);
+		});
+	};
     Exporter.getPosts = function(callback) {
         return Exporter.getPaginatedPosts(0, -1, callback);
     };
@@ -260,21 +285,24 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         var err;
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
-        var query = 'SELECT '
-            + prefix + 'posts.post_id as _pid, '
+        var query =
+            'SELECT ' + prefix + 'posts.post_id as _pid, '
+            //+ 'POST_PARENT_ID as _post_replying_to, ' phpbb doesn't have "reply to another post"
             + prefix + 'posts.topic_id as _tid, '
             + prefix + 'posts.post_time as _timestamp, '
             // not being used
             + prefix + 'posts.post_subject as _subject, '
+
             + prefix + 'posts.post_text as _content, '
             + prefix + 'posts.poster_id as _uid, '
+
             // maybe use this one to skip
             + prefix + 'posts.post_approved as _approved '
 
             + 'FROM ' + prefix + 'posts '
-
-	    // filter first posts with sql joins, which causes massive CPU load (114000 posts in 9000 topics took 15 minutes)
-	    + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'posts.post_id NOT IN (SELECT ' + prefix + 'topics.topic_first_post_id ' + 'FROM ' + prefix + 'topics) '
+            + 'LEFT JOIN ' + prefix + 'topics ON ' + prefix + 'posts.post_id = ' + prefix + 'topics.topic_first_post_id '
+		    // the ones that are topics main posts are filtered below
+            + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'topics.topic_first_post_id IS NULL '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
         if (!Exporter.connection) {
@@ -283,24 +311,28 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             return callback(err);
         }
 
-        Exporter.connection.query(query,
-            function (err, rows) {
-                if (err) {
-                    Exporter.error(err);
-                    return callback(err);
-                }
+		Exporter.connection.query(query,
+			function (err, rows) {
+				if (err) {
+					Exporter.error(err);
+					return callback(err);
+				}
+				getTopicsMainPids(function(err, mpids) {
+					//normalize here
+					var map = {};
+					rows.forEach(function (row) {
+						// make it's not a topic
+						if (! mpids[row._pid]) {
+							row._content = row._content || '';
+							row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+							map[row._pid] = row;
+						}
+					});
 
-                //normalize here
-                var map = {};
-                rows.forEach(function (row) {
-                    // make it's not a topic
-                    row._content = row._content || '';
-                    row._timestamp = ((row._timestamp || 0) * 1000) || startms;
-                    map[row._pid] = row;
-                });
+					callback(null, map);
+				});
+			});
 
-                callback(null, map);
-            });
     };
 
     Exporter.teardown = function(callback) {
