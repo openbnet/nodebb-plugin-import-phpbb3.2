@@ -30,9 +30,6 @@ var request = require('request');
         callback(null, Exporter.config());
     };
 
-    Exporter.getUsers = function(callback) {
-        return Exporter.getPaginatedUsers(0, -1, callback);
-    };
     Exporter.getPaginatedUsers = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -119,9 +116,6 @@ var request = require('request');
             });
     };
 
-    Exporter.getGroups = function(callback) {
-        return Exporter.getPaginatedGroups(0, -1, callback);
-    };
     Exporter.getPaginatedGroups = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -230,9 +224,6 @@ var request = require('request');
             });
     };
 
-    Exporter.getMessages = function(callback) {
-        return Exporter.getPaginatedMessages(0, -1, callback);
-    };
     Exporter.getPaginatedMessages = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -277,9 +268,6 @@ var request = require('request');
                 });
     };
 
-    Exporter.getCategories = function(callback) {
-        return Exporter.getPaginatedCategories(0, -1, callback);
-    };
     Exporter.getPaginatedCategories = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -321,9 +309,6 @@ var request = require('request');
             });
     };
 
-    Exporter.getTopics = function(callback) {
-        return Exporter.getPaginatedTopics(0, -1, callback);
-    };
     Exporter.getPaginatedTopics = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -388,9 +373,6 @@ var request = require('request');
             });
     };
 
-    Exporter.getPosts = function(callback) {
-        return Exporter.getPaginatedPosts(0, -1, callback);
-    };
     Exporter.getPaginatedPosts = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -511,32 +493,6 @@ var request = require('request');
         callback();
     };
 
-    Exporter.testrun = function(config, callback) {
-        async.series([
-            function(next) {
-                Exporter.setup(config, next);
-            },
-            function(next) {
-                Exporter.getUsers(next);
-            },
-            function(next) {
-                Exporter.getMessages(next);
-            },
-            function(next) {
-                Exporter.getCategories(next);
-            },
-            function(next) {
-                Exporter.getTopics(next);
-            },
-            function(next) {
-                Exporter.getPosts(next);
-            },
-            function(next) {
-                Exporter.teardown(next);
-            }
-        ], callback);
-    };
-
     Exporter.paginatedTestrun = function(config, callback) {
         async.series([
             function(next) {
@@ -611,12 +567,5 @@ var request = require('request');
         return str.length <= len ? str : str.substr(0, len - 3) + '...';
     };
 
-    Exporter.whichIsFalsy = function(arr) {
-        for (var i = 0; i < arr.length; i++) {
-            if (!arr[i])
-                return i;
-        }
-        return null;
-    };
 
 })(module.exports);
