@@ -1,4 +1,3 @@
-
 var async = require('async');
 var mysql = require('mysql');
 var _ = require('underscore');
@@ -6,6 +5,7 @@ var Entities = require('html-entities').AllHtmlEntities;
 var entities = new Entities();
 var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb]';
+var request = require('request');
 
 (function(Exporter) {
 
@@ -19,7 +19,10 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             user: config.dbuser || config.user || 'root',
             password: config.dbpass || config.pass || config.password || '',
             port: config.dbport || config.port || 3306,
-            database: config.dbname || config.name || config.database || 'phpbb'
+            database: config.dbname || config.name || config.database || 'phpbb',
+
+            avatarFolder: config.custom.avatarFolder || '',
+            attachmentsFolder: '/uploads/files/'
         };
 
         Exporter.config(_config);
@@ -31,9 +34,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         callback(null, Exporter.config());
     };
 
-    Exporter.getUsers = function(callback) {
-        return Exporter.getPaginatedUsers(0, -1, callback);
-    };
     Exporter.getPaginatedUsers = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -41,28 +41,25 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
         var query = 'SELECT '
-            + prefix + 'users.user_id as _uid, '
-            + prefix + 'users.username as _username, '
-            + prefix + 'users.username_clean as _alternativeUsername, '
-            + prefix + 'users.user_email as _registrationEmail, '
-            //+ prefix + 'users.user_rank as _level, '
-            + prefix + 'users.user_regdate as _joindate, '
-            + prefix + 'users.user_email as _email, '
-            //+ prefix + 'banlist.ban_id as _banned '
-            + prefix + 'users.user_sig as _signature, '
-            + prefix + 'users.user_website as _website, '
-            //+ prefix + 'users.USER_OCCUPATION as _occupation, '
-            + prefix + 'users.user_from as _location, '
-            //+ prefix + 'users.USER_AVATAR as _picture, '
-            //+ prefix + 'users.USER_TITLE as _title, '
-            //+ prefix + 'users.USER_RATING as _reputation, '
-            //+ prefix + 'users.USER_TOTAL_RATES as _profileviews, '
-            + prefix + 'users.user_birthday as _birthday '
+            + prefix + 'users.user_id AS _uid, '
+            + prefix + 'users.username AS _username, '
+            + prefix + 'users.username_clean AS _alternativeUsername, '
+            + prefix + 'users.user_email AS _registrationEmail, '
+            + prefix + 'users.user_regdate AS _joindate, '
+            + prefix + 'users.user_lastvisit AS _lastonline, '
+            + prefix + 'users.user_email AS _email, '
+            + prefix + 'users.user_allow_viewemail AS _showemail, '
+            + prefix + 'users.user_sig AS _signature, '
+            + prefix + 'users.user_website AS _website, '
+            + prefix + 'users.user_from AS _location, '
+            + prefix + 'users.user_avatar AS _pictureFilename, '
+            + prefix + 'users.user_birthday AS _birthday, '
+            + 'GROUP_CONCAT( DISTINCT ' + prefix + 'user_group.group_id SEPARATOR  ":" ) AS _groups '
 
             + 'FROM ' + prefix + 'users '
-            + 'WHERE ' + prefix + 'users.user_type <> 2 AND ' + prefix + 'users.user_type <> 1 '
+            + 'LEFT JOIN ' + prefix + 'user_group ON ' + prefix + 'users.user_id = ' + prefix + 'user_group.user_id '
+            + 'GROUP BY ' + prefix + 'users.user_id '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
-
 
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
@@ -82,11 +79,11 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 rows.forEach(function(row) {
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
-                    row._signature = entities.decode(Exporter.truncateStr(row._signature || '', 150));
-
+                    row._signature = Exporter.truncateStr(row._signature || '', 2500);
                     // from unix timestamp (s) to JS timestamp (ms)
                     row._joindate = ((row._joindate || 0) * 1000) || startms;
-
+                    // from unix timestamp (s) to JS timestamp (ms)
+                    row._lastonline = ((row._lastonline || 0) * 1000) || startms;
                     // lower case the email for consistency
                     row._email = (row._email || '').toLowerCase();
 
@@ -98,62 +95,189 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
                     // I don't know about you about I noticed a lot my users have incomplete urls, urls like: http://
                     row._website = Exporter.validateUrl(row._website);
+                    // split groups string into array
+                    row._groups = (row._groups || '').split(":");
 
                     map[row._uid] = row;
+                });
+
+                var getAvatarBlobs = rows.map(function(user) {
+                    return function(cb) {
+                        if (user._pictureFilename == '') {
+                            cb();
+                            return;
+                        }
+
+                        var uri = avatarFolder + user._pictureFilename;
+                        request(uri, { encoding: null }, function(error, response, body) {
+                            if (err || response.statusCode != 200) {
+                                user._pictureFilename = '';
+                                cb();
+                                return;
+                            }
+
+                            user._pictureBlob = body;
+                            cb();
+                        });
+                    };
                 });
 
                 callback(null, map);
             });
     };
 
-    Exporter.getMessages = function(callback) {
-        return Exporter.getPaginatedMessages(0, -1, callback);
-    };
-    Exporter.getPaginatedMessages = function(start, limit, callback) {
+    Exporter.getPaginatedGroups = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
         var err;
         var prefix = Exporter.config('prefix');
-        var startms = +new Date();
+        var adminGroup = Exporter.config('adminGroup');
+        var modGroup = Exporter.config('modGroup');
         var query = 'SELECT '
-            + prefix + 'privmsgs.msg_id as _mid, '
-            + prefix + 'privmsgs.author_id as _fromuid, '
-            + prefix + 'privmsgs.to_address as _touid, '
-            + prefix + 'privmsgs.message_text as _content, '
-            + prefix + 'privmsgs.message_time as _timestamp '
-            + 'FROM ' + prefix + 'privmsgs '
-            + 'ORDER BY ' + prefix + 'privmsgs.message_time '
+            + prefix + 'groups.group_id AS _gid, '
+            + prefix + 'groups.group_name AS _name, '
+            // _ownerUid (handled below)
+            + prefix + 'groups.group_desc AS _description '
+            // _timestamp
+            +'FROM ' + prefix + 'groups '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
-            if(!Exporter.connection) {
-                err = {error: 'MySQL connection is not setup. Run setup(config) first'};
-                Exporter.error(err.error);
-                return callback(err);
-            }
+        if (!Exporter.connection) {
+            err = { error: 'MySQL connection is not setup. Run setup(config) first' };
+            Exporter.error(err.error);
+            return callback(err);
+        }
 
-            Exporter.connection.query(query,
-                function(err, rows) {
+        Exporter.connection.query(query,
+            function(err, rows) {
+                if (err) {
+                    Exporter.error(err);
+                    return callback(err);
+                }
+
+                // get group leader
+                var map = {};
+                var gids = rows.map(function(row) {
+                    return row._gid;
+                });
+                Exporter.getGroupLeaders(gids, function(err, gLeaders) {
                     if (err) {
                         Exporter.error(err);
                         return callback(err);
                     }
 
-                    var map = {};
                     rows.forEach(function(row) {
-                        row._touid = row._touid.substr(2);
-                        row._content = entities.decode(row._content);
-                        row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+                        // don't add admin and moderator groups from phpbb
+                        if (adminGroup != '' && parseInt(adminGroup, 10) == row._gid) {
+                            return;
+                        }
+                        if (modGroup != '' && parseInt(modGroup, 10) == row._gid) {
+                            return;
+                        }
 
-                        map[row._mid] = row;
+                        row._ownerUid = gLeaders[row._gid];
+                        row._description = row._description || '';
+
+                        map[row._gid] = row;
                     });
-
                     callback(null, map);
                 });
+            });
+    };
+    Exporter.getGroupLeaders = function(gids, callback) {
+        callback = !_.isFunction(callback) ? noop : callback;
+
+        var err;
+        var prefix = Exporter.config('prefix');
+        var query = 'SELECT '
+            + prefix + 'user_group.group_id AS _gid, '
+            + prefix + 'user_group.user_id AS _uid, '
+            + prefix + 'user_group.group_leader AS _leader, '
+            + prefix + 'user_group.user_pending AS _pending '
+            + 'FROM ' + prefix + 'user_group ';
+
+        if (!Exporter.connection) {
+            err = { error: 'MySQL connection is not setup. Run setup(config) first' };
+            Exporter.error(err.error);
+            return callback(err);
+        }
+
+        Exporter.connection.query(query,
+            function(err, userGroup) {
+                if (err) {
+                    Exporter.error(err);
+                    return callback(err);
+                }
+
+                var leaders = {};
+                gids.forEach(function(gid) {
+                    userGroup.some(function(ug) {
+                        if (gid == ug._gid && ug._leader == 1) {
+                            leaders[gid] = ug._uid;
+                            return true;
+                        }
+                        return false;
+                    });
+
+                    if (leaders[gid] == undefined) {
+                        userGroup.some(function(ug) {
+                            if (gid == ug._gid && ug._pending != 1) {
+                                leaders[gid] = ug._uid;
+                                return true;
+                            }
+                            return false;
+                        });
+                    }
+                });
+
+                callback(null, leaders);
+            });
     };
 
-    Exporter.getCategories = function(callback) {
-        return Exporter.getPaginatedCategories(0, -1, callback);    
-    };
+//    Exporter.getPaginatedMessages = function(start, limit, callback) {
+//        callback = !_.isFunction(callback) ? noop : callback;
+//
+//        var err;
+//        var prefix = Exporter.config('prefix');
+//        var startms = +new Date();
+//        var query = 'SELECT '
+//            + prefix + 'privmsgs.msg_id AS _mid, '
+//            + prefix + 'privmsgs.author_id AS _fromuid, '
+//            + prefix + 'privmsgs.to_address AS _touid, '
+//            + prefix + 'privmsgs.message_text AS _content, '
+//            + prefix + 'privmsgs.message_time AS _timestamp '
+//            + 'FROM ' + prefix + 'privmsgs '
+//            + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
+//
+//            if(!Exporter.connection) {
+//                err = {error: 'MySQL connection is not setup. Run setup(config) first'};
+//                Exporter.error(err.error);
+//                return callback(err);
+//            }
+//
+//            Exporter.connection.query(query,
+//                function(err, rows) {
+//                    if (err) {
+//                        Exporter.error(err);
+//                        return callback(err);
+//                    }
+//
+//                    var map = {};
+//                    rows.forEach(function(row) {
+//                        // this replaces the strange phpbb uid with a simple single number
+//                        // please note that this also removes additional targets the message has been sent to
+//                        // nodebb currently doesn't allow to send chats to multiple users
+//                        row._touid = row._touid.replace(/^u_([^:]+)(:.*)?$/, "$1");
+//                        row._content = row._content || '';
+//                        row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+//
+//                        map[row._mid] = row;
+//                    });
+//
+//                    callback(null, map);
+//                });
+//    };
+
     Exporter.getPaginatedCategories = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
@@ -161,13 +285,13 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
         var query = 'SELECT '
-            + prefix + 'forums.forum_id as _cid, '
-            + prefix + 'forums.forum_name as _name, '
-            + prefix + 'forums.forum_desc as _description '
+            + prefix + 'forums.forum_id AS _cid, '
+            + prefix + 'forums.parent_id AS _parentCid, '
+            + prefix + 'forums.forum_name AS _name, '
+            + prefix + 'forums.forum_desc AS _description '
             + 'FROM ' + prefix + 'forums '
-            + 'WHERE ' + prefix + 'forums.forum_type <> 0 '
-            +  (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
-            
+            + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
+
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
             Exporter.error(err.error);
@@ -195,48 +319,35 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             });
     };
 
-    Exporter.getTopics = function(callback) {
-        return Exporter.getPaginatedTopics(0, -1, callback);
-    };
     Exporter.getPaginatedTopics = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
         var err;
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
-        var query =
-            'SELECT '
-            + prefix + 'topics.topic_id as _tid, '
-            + prefix + 'topics.forum_id as _cid, '
-
-            // this is the 'parent-post'
-            // see https://github.com/akhoury/nodebb-plugin-import#important-note-on-topics-and-posts
-            // I don't really need it since I just do a simple join and get its content, but I will include for the reference
-            // remember this post EXCLUDED in the exportPosts() function
-            + prefix + 'topics.topic_first_post_id as _pid, '
-
-            + prefix + 'topics.topic_views as _viewcount, '
-            + prefix + 'topics.topic_title as _title, '
-            + prefix + 'topics.topic_time as _timestamp, '
-
-            // maybe use that to skip
-            + prefix + 'topics.topic_approved as _approved, '
-
-            + prefix + 'topics.topic_status as _status, '
-
-            //+ prefix + 'TOPICS.TOPIC_IS_STICKY as _pinned, '
-            + prefix + 'posts.poster_id as _uid, '
+        var query = 'SELECT '
+            + prefix + 'topics.topic_id AS _tid, '
+            + prefix + 'topics.forum_id AS _cid, '
+            + prefix + 'topics.topic_first_post_id AS _pid, '
+            + prefix + 'topics.topic_views AS _viewcount, '
+            + prefix + 'topics.topic_title AS _title, '
+            + prefix + 'topics.topic_time AS _timestamp, '
+            + prefix + 'posts.post_edit_time AS _edited, '
+            // below are aux vars used for setting other vars
+            + prefix + 'topics.topic_approved AS _approved, '
+            + prefix + 'topics.topic_status AS _status, '
+            + prefix + 'topics.topic_attachment AS _hasattachments, '
+            + prefix + 'topics.topic_type AS _type, '
+            + prefix + 'posts.poster_id AS _uid, '
+            + prefix + 'posts.poster_ip AS _ip, '
             // this should be == to the _tid on top of this query
-            + prefix + 'posts.topic_id as _post_tid, '
+            + prefix + 'posts.topic_id AS _post_tid, '
+            + prefix + 'posts.post_text AS _content '
 
-            // and there is the content I need !!
-            + prefix + 'posts.post_text as _content '
-
-            + 'FROM ' + prefix + 'topics, ' + prefix + 'posts '
-            // see
-            + 'WHERE ' + prefix + 'topics.topic_first_post_id=' + prefix + 'posts.post_id '
+            + 'FROM ' + prefix + 'topics '
+            + 'LEFT JOIN ' + prefix + 'posts ON ' + prefix + 'topics.topic_first_post_id = ' + prefix + 'posts.post_id '
+            + 'GROUP BY ' + prefix + 'topics.topic_id '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
-
 
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
@@ -251,48 +362,60 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                     return callback(err);
                 }
 
-                //normalize here
                 var map = {};
-                rows.forEach(function(row) {
-                    row._title = entities.decode(row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled');
-                    row._timestamp = ((row._timestamp || 0) * 1000) || startms;
-                    row._content = entities.decode(row._content);
+                var topicWork = rows.map(function(row) {
+                    return function(cb) {
+                        //normalize here
+                        row._title = row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled';
+                        row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+                        row._edited = ((row._edited || 0) * 1000) || 0;
+                        row._locked = (row._status == 1) ? 1 : 0;
+                        row._deleted = (row._approved == 0) ? 1 : 0;
+                        row._pinned = (row._type > 0) ? 1 : 0;
+                        row._content = (row._content || 'no text');
 
-                    map[row._tid] = row;
+                        Exporter.getPostAttachments(row, 0, function(err, row_wAttachments) {
+                            if (err) {
+                                Exporter.error(err);
+                                return callback(err);
+                            }
+
+                            map[row_wAttachments._tid] = row_wAttachments;
+                            cb();
+                        });
+                    };
                 });
-
-                callback(null, map);
+                async.parallel(topicWork, function(err) {
+                    callback(err, map);
+                });
             });
     };
 
-    Exporter.getPosts = function(callback) {
-        return Exporter.getPaginatedPosts(0, -1, callback);
-    };
     Exporter.getPaginatedPosts = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
         var err;
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
-        var query =
-            'SELECT ' + prefix + 'posts.post_id as _pid, '
-            //+ 'POST_PARENT_ID as _post_replying_to, ' phpbb doesn't have "reply to another post"
-            + prefix + 'posts.topic_id as _tid, '
-            + prefix + 'posts.post_time as _timestamp, '
-            // not being used
-            + prefix + 'posts.post_subject as _subject, '
-
-            + prefix + 'posts.post_text as _content, '
-            + prefix + 'posts.poster_id as _uid, '
-
+        var query = 'SELECT '
+            + prefix + 'posts.post_id AS _pid, '
+            + prefix + 'posts.topic_id AS _tid, '
+            + prefix + 'posts.post_time AS _timestamp, '
+            + prefix + 'posts.post_edit_time AS _edited, '
+            + prefix + 'posts.post_subject AS _subject, '
+            + prefix + 'posts.post_text AS _content, '
+            + prefix + 'posts.poster_id AS _uid, '
+            + prefix + 'posts.poster_ip AS _ip, '
+            + prefix + 'posts.post_attachment AS _hasattachments, '
             // maybe use this one to skip
-            + prefix + 'posts.post_approved as _approved '
+            + prefix + 'posts.post_approved AS _approved '
 
             + 'FROM ' + prefix + 'posts '
 
-		    // remove first posts
-            + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'posts.post_id NOT IN (SELECT ' + prefix + 'topics.topic_first_post_id '
-                + 'FROM ' + prefix + 'topics) '
+            // join for topic main post exclution
+            + 'LEFT JOIN ' + prefix + 'topics ON ' + prefix + 'posts.post_id = ' + prefix + 'topics.topic_first_post_id '
+            + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'topics.topic_first_post_id IS NULL '
+            + 'GROUP BY ' + prefix + 'posts.post_id '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
         if (!Exporter.connection) {
@@ -301,26 +424,94 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             return callback(err);
         }
 
-		Exporter.connection.query(query,
-			function (err, rows) {
-				if (err) {
-					Exporter.error(err);
-					return callback(err);
-				}
+        Exporter.connection.query(query,
+            function (err, rows) {
+                if (err) {
+                    Exporter.error(err);
+                    return callback(err);
+                }
+                var map = {};
+                var postWork = rows.map(function(row) {
+                    return function(cb) {
+                        //normalize here
+                        row._content = row._content || '';
+                        row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+                        row._edited = ((row._edited || 0) * 1000) || startms;
+                        row._groups = (row._groups || '').split(",");
 
-				//normalize here
-				var map = {};
-				rows.forEach(function (row) {
-					// make it's not a topic
-					row._content = entities.decode(row._content || '');
-					row._timestamp = ((row._timestamp || 0) * 1000) || startms;
-					map[row._pid] = row;
-				});
+                        Exporter.getPostAttachments(row, 0, function(err, row_wAttachments) {
+                            if (err) {
+                                Exporter.error(err);
+                                return callback(err);
+                            }
 
-                callback(null, map);
+                            map[row_wAttachments._pid] = row_wAttachments;
+                            cb();
+                        });
+                    };
+                });
 
-			});
+                async.parallel(postWork, function(err) {
+                    callback(err, map);
+                });
+            });
+    };
 
+    Exporter.getPostAttachments = function(post, pmAttachment, callback) {
+        callback = !_.isFunction(callback) ? noop : callback;
+
+        var attachmentsFolder = Exporter.config('attachmentsFolder');
+        if (attachmentsFolder == '') {
+            callback(err, null);
+            return;
+        }
+
+        var err;
+        var prefix = Exporter.config('prefix');
+        var query = 'SELECT '
+            + prefix + 'attachments.attach_id AS _aid, '
+            + prefix + 'attachments.post_msg_id AS _pid, '
+            + prefix + 'attachments.poster_id AS _posterid, '
+            + prefix + 'attachments.extension AS _extension, '
+            + prefix + 'attachments.real_filename AS _name, '
+            + prefix + 'attachments.physical_filename AS _loc, '
+            + prefix + 'attachments.attach_comment AS _comment, '
+            + prefix + 'attachments.is_orphan AS _orphan '
+            + 'FROM ' + prefix + 'attachments '
+            + 'WHERE ' + prefix + 'attachments.post_msg_id = ' + post._pid + ' AND ' + prefix + 'attachments.in_message = ' + pmAttachment;
+
+        if (!Exporter.connection) {
+            err = { error: 'MySQL connection is not setup. Run setup(config) first' };
+            Exporter.error(err.error);
+            return callback(err);
+        }
+
+        Exporter.connection.query(query,
+            function(err, rows) {
+                if (err) {
+                    Exporter.error(err);
+                    return callback(err);
+                }
+
+                if (rows.length > 0) {
+                    post._attachments = new Array();
+
+                    rows.forEach(function(row) {
+                        var newAttachmentName = row._posterid + "_" + row._aid + "." + row._extension;
+                        var attachmentPath = attachmentsFolder + newAttachmentName;
+                        var attachmentComment = row._comment.length > 0 ? row._comment : newAttachmentName;
+                        var inlineRegexp = new RegExp("\\[attachment=\\d+:[^\\]]+\\]<!-- ia\\d+ -->" + row._name.replace(/\//g, "\\/").replace(/\./g, "\\.").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/\$/g, "\\$") + "<!-- ia\\d+ -->\\[\\/attachment:[^\\]]+\\]", "g");
+
+                        if (post._content.match(inlineRegexp)) {
+                            post._content = post._content.replace(inlineRegexp, "![" + newAttachmentName + "](" + attachmentPath + ")");
+                        } else {
+                            post._attachments.push(attachmentPath);
+                        }
+                    });
+                }
+
+                callback(null, post);
+            });
     };
 
     Exporter.teardown = function(callback) {
@@ -331,29 +522,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         callback();
     };
 
-    Exporter.testrun = function(config, callback) {
-        async.series([
-            function(next) {
-                Exporter.setup(config, next);
-            },
-            function(next) {
-                Exporter.getUsers(next);
-            },
-            function(next) {
-                Exporter.getCategories(next);
-            },
-            function(next) {
-                Exporter.getTopics(next);
-            },
-            function(next) {
-                Exporter.getPosts(next);
-            },
-            function(next) {
-                Exporter.teardown(next);
-            }
-        ], callback);
-    };
-    
     Exporter.paginatedTestrun = function(config, callback) {
         async.series([
             function(next) {
@@ -361,6 +529,12 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             },
             function(next) {
                 Exporter.getPaginatedUsers(0, 1000, next);
+            },
+            function(next) {
+                Exporter.getPaginatedGroups(0, 1000, next);
+            },
+            function(next) {
+                Exporter.getPaginatedMessages(0, 1000, next);
             },
             function(next) {
                 Exporter.getPaginatedCategories(0, 1000, next);
@@ -422,12 +596,5 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         return str.length <= len ? str : str.substr(0, len - 3) + '...';
     };
 
-    Exporter.whichIsFalsy = function(arr) {
-        for (var i = 0; i < arr.length; i++) {
-            if (!arr[i])
-                return i;
-        }
-        return null;
-    };
 
 })(module.exports);
