@@ -55,10 +55,9 @@ var request = require('request');
             + prefix + 'users.user_avatar AS _pictureFilename, '
             + prefix + 'users.user_birthday AS _birthday, '
             + 'GROUP_CONCAT( DISTINCT ' + prefix + 'user_group.group_id SEPARATOR  ":" ) AS _groups '
-
             + 'FROM ' + prefix + 'users '
-            + 'WHERE ' +prefix + 'users.user_posts > 0 ' // filter users who dont have at least 1 post
             + 'LEFT JOIN ' + prefix + 'user_group ON ' + prefix + 'users.user_id = ' + prefix + 'user_group.user_id '
+            + 'AND ' +prefix + 'users.user_posts > 0 ' // filter users who dont have at least 1 post
             + 'GROUP BY ' + prefix + 'users.user_id '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
