@@ -1,8 +1,8 @@
 var async = require('async');
 var mysql = require('mysql');
 var _ = require('underscore');
-// var Entities = require('html-entities').AllHtmlEntities;
-// var entities = new Entities();
+var Entities = require('html-entities').AllHtmlEntities;
+var entities = new Entities();
 var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb]';
 var request = require('request');
@@ -308,10 +308,8 @@ var request = require('request');
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-                    // row._name = entities.decode(row._name || 'Untitled Category');
-                    // row._description = entities.decode(row._description || 'No decscription available');
-                    row._name = row._name || 'Untitled Category';
-                    row._description = row._description || 'No decscription available';
+                    row._name = entities.decode(row._name || 'Untitled Category');
+                    row._description = entities.decode(row._description || 'No decscription available');
                     row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 
                     map[row._cid] = row;
