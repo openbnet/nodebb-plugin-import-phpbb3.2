@@ -1,7 +1,7 @@
 nodebb-plugin-import-phpbb
 ==========================
 
-Fork to use with advanced BBCode to Markdown processor
+Fork to use with [advanced BBCode to Markdown processor](https://github.com/elelel/phpbb3bbcode2markdown4nodebb)
 
 * Imports user avatars, both from uploaded avatar images and URLs
 
