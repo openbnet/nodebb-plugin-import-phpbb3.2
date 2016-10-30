@@ -3,8 +3,14 @@ nodebb-plugin-import-phpbb
 
 Fork to use with [advanced BBCode to Markdown processor](https://github.com/elelel/phpbb3bbcode2markdown4nodebb)
 
+*Features:*
 * Imports user avatars, both from uploaded avatar images and URLs
 
+*Usage:*
+Use with nodebb-import-phpbb plugin (e.g. use git path to install the phpbb import module)
+
+To specify PhpBB avatars upload directory in "Exporter specific configs" use *phpbbAvatarsUploadPath* setting, e.g.
+ > {"phpbbAvatarsUploadPath": "/path/to/avatars/upload" }
 
 ______________________________________________________
 
