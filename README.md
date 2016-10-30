@@ -1,6 +1,15 @@
 nodebb-plugin-import-phpbb
 ==========================
 
+Fork to use with advanced BBCode to Markdown processor
+
+* Imports user avatars, both from uploaded avatar images and URLs
+
+
+______________________________________________________
+
+ **Original desription**
+
 A phpBB2 to NodeBB exporter based on nodebb-plugin-import-ubb by Aziz Khoury
 
 Use this to import data into NodeBB using [nodebb-plugin-import](https://github.com/akhoury/nodebb-plugin-import).
