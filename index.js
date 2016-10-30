@@ -2,6 +2,7 @@
 var async = require('async');
 var mysql = require('mysql');
 var _ = require('underscore');
+var fs = require('fs');
 var Entities = require('html-entities').AllHtmlEntities;
 var entities = new Entities();
 var noop = function(){};
@@ -53,16 +54,24 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'users.user_website as _website, '
             //+ prefix + 'users.USER_OCCUPATION as _occupation, '
             + prefix + 'users.user_from as _location, '
-            //+ prefix + 'users.USER_AVATAR as _picture, '
             //+ prefix + 'users.USER_TITLE as _title, '
             //+ prefix + 'users.USER_RATING as _reputation, '
             //+ prefix + 'users.USER_TOTAL_RATES as _profileviews, '
-            + prefix + 'users.user_birthday as _birthday '
-
-            + 'FROM ' + prefix + 'users '
+            + prefix + 'users.user_birthday as _birthday, '
+	    + prefix + 'users.user_avatar_type as _phpbb_avatar_type, '
+	    + prefix + 'users.user_avatar as _phpbb_avatar '
+	    
+            + ' FROM ' + prefix + 'users '
             + 'WHERE ' + prefix + 'users.user_type <> 2 AND ' + prefix + 'users.user_type <> 1 '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
+	var query_config = 'SELECT config_value AS _phpbb_avatar_salt FROM '
+	    + prefix + 'config where config_name = "avatar_salt"';
+
+	var query_combined = 'SELECT * FROM '
+	    + '( ' + query + ' )'
+	    + ' CARTESIAN JOIN (' + query_config + ')'
+	    + ' as s';
 
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
@@ -70,7 +79,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             return callback(err);
         }
 
-        Exporter.connection.query(query,
+        Exporter.connection.query(query_combined,
             function(err, rows) {
                 if (err) {
                     Exporter.error(err);
@@ -98,6 +107,31 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
                     // I don't know about you about I noticed a lot my users have incomplete urls, urls like: http://
                     row._website = Exporter.validateUrl(row._website);
+
+		    // User avatar is a remote file
+		    if (row._phpbb_avatar_type == 2) {
+			row._picture = Exporter.validateUrl(row._phpbb_avatar);
+		    }
+
+		    // User avatar is an uploaded file
+		    if (row._phpbb_avatar_type == 1) {
+			var re = /^(.*)_[1234567890]+?(\..+?)$/g;
+			var match = re.exec(row._phpbb_avatar);
+			if (match != null) {
+			    row._phpbb_avatar = match[1] + match[2];
+			}
+			row._phpbb_avatar_filename = row._phpbb_avatar_salt + '_' + row._phpbb_avatar;
+
+			// Read file from phpbb_avatart directory from module home subdirectory
+			fs.readFile(__dirname + '/phpbb_avatars/' + row._phpbb_avatar_filename, function (err, pictureBlob) {
+			    if (err) {
+				Exporter.warn('Cannot import avatar for user ' + row._uid);
+				Exporter.warn(err);
+			    }
+
+			    row._pictureBlob = pictureBlob;
+			});
+		    };
 
                     map[row._uid] = row;
                 });
