@@ -26,6 +26,18 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         Exporter.config(_config);
         Exporter.config('prefix', config.prefix || config.tablePrefix || '' /* phpbb_ ? */ );
 
+	if (config.custom && typeof config.custom === 'string') {
+	    try {
+		config.custom = JSON.parse(config.custom)
+	    } catch (e) {
+		config.custom = null
+	    }
+	}
+
+	Exporter.config('custom', config.custom || {
+	    phpbbAvatarsUploadPath: __dirname + '/phpbb_avatars/'
+	});
+	
         Exporter.connection = mysql.createConnection(_config);
         Exporter.connection.connect();
 
@@ -123,10 +135,11 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 			row._phpbb_avatar_filename = row._phpbb_avatar_salt + '_' + row._phpbb_avatar;
 
 			// Read file from phpbb_avatart directory from module home subdirectory
-			fs.readFile(__dirname + '/phpbb_avatars/' + row._phpbb_avatar_filename, function (err, pictureBlob) {
+			fs.readFile(Exporter.config('custom').phpbbAvatarsUploadPath
+				    + row._phpbb_avatar_filename, function (err, pictureBlob) {
 			    if (err) {
-				Exporter.warn('Cannot import avatar for user ' + row._uid);
-				Exporter.warn(err);
+				Exporter.warn('Cannot import avatar for user ' + row._uid + " - "
+					      + err);
 			    }
 
 			    row._pictureBlob = pictureBlob;
