@@ -5,12 +5,16 @@ Fork to use with [advanced BBCode to Markdown processor](https://github.com/elel
 
 *Features:*
 * Imports user avatars, both from uploaded avatar images and URLs
+* Imports number of thanks received as user reputation (if you don't have thanks system in PhpBB, you have to turn this option off explicitly)
 
 *Usage:*
 Use with nodebb-import-phpbb plugin (e.g. use git path to install the phpbb import module)
 
 To specify PhpBB avatars upload directory in "Exporter specific configs" use *phpbbAvatarsUploadPath* setting, e.g.
  > {"phpbbAvatarsUploadPath": "/path/to/avatars/upload" }
+...to turn off import of user reputation:
+ > {"importThanksAsReputation": 0}
+ 
 
 ______________________________________________________
 
