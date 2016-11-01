@@ -102,10 +102,11 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-
-                    var thanks_count = 0;
-                    query_thanks_count = "SELECT count(1) AS thanks_count FROM " + prefix + "thanks WHERE poster_id=" + row._uid;
-                    Exporter.connection.query(query_thanks_count,
+                    if (Exporter.config('custom').importThanksAsReputation != 0) {
+                        query_thanks_count = "SELECT count(1) AS thanks_count FROM "
+                            + prefix + "thanks WHERE poster_id=" + row._uid;
+                        var thanks_count = 0;
+                        Exporter.connection.query(query_thanks_count,
                                               function(err, thanks_rows) {
                                                   if (err) {
                                                       Exporter.error(err);
@@ -115,7 +116,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                                                       thanks_count = thanks_row.thanks_count;
                                                   });
                                               });
-                    row._reputation = thanks_count;
+                        row._reputation = thanks_count;
+                    };
                     
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
