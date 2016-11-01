@@ -1,4 +1,3 @@
-
 var async = require('async');
 var mysql = require('mysql');
 var _ = require('underscore');
@@ -9,60 +8,6 @@ var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb]';
 
 (function(Exporter) {
-    var phpbb_avatar_salt_cached = "";
-
-    phpbb_avatar_salt = function(callback, prefix, uid) {
-        var query = 'SELECT config_value AS _phpbb_avatar_salt FROM '
-	    + prefix + 'config where config_name = "avatar_salt"';
-
-        if (phpbb_avatar_salt == "") {
-            Exporter.connection.query(query,
-                                      function(err, thanks_rows) {
-                                          if (err) {
-                                              Exporter.error(err);
-                                              return callback(err);
-                                          }
-                                          thanks_rows.forEach(function(thanks_row) {
-                                              phpbb_avatar_salt_cached = thanks_row.thanks_count;
-                                          });
-                                      });
-        };
-        return phpbb_avatar_salt_cached;
-    };
-        
-    phpbb_num_thanks_received = function(callback, prefix, uid) {
-        query = "SELECT count(1) AS thanks_count FROM "
-            + prefix + "thanks WHERE poster_id=" + uid;
-        var thanks_count = 0;
-        Exporter.connection.query(query,
-                                  function(err, thanks_rows) {
-                                      if (err) {
-                                          Exporter.error(err);
-                                          return callback(err);
-                                      }
-                                      thanks_rows.forEach(function(thanks_row) {
-                                          thanks_count = thanks_row.thanks_count;
-                                      });
-                                  });
-        return thanks_count;
-    };
-
-    phpbb_is_banned = function(callback, prefix, uid) {
-        query = "SELECT count(*) AS is_banned FROM " + prefix +
-            "banlist WHERE ban_userid=" + uid;
-        var is_banned = 0;
-        Exporter.connection.query(query,
-                                  function(err, banned_rows) {
-                                      if (err) {
-                                          Exporter.error(err);
-                                          return callback(err);
-                                      }
-                                      banned_rows.forEach(function(banned_rows) {
-                                          is_banned = banned_rows.is_banned;
-                                      });
-                                  });
-        return is_banned;
-    };
 
     Exporter.setup = function(config, callback) {
         Exporter.log('setup');
@@ -90,6 +35,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
 	Exporter.config('custom', config.custom || {
 	    phpbbAvatarsUploadPath: __dirname + '/phpbb_avatars/',
+            phpbbAvatarSalt: '',
             importThanksAsReputation: 1
 	});
 	
@@ -105,9 +51,28 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
     Exporter.getPaginatedUsers = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
+        phpbb_num_thanks_received = 0;
+        get_phpbb_num_thanks_received = function(callback, prefix, uid) {
+        };
+
         var err;
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
+
+        var query_avatar_salt = 'SELECT config_value AS avatar_salt FROM '
+	    + prefix + 'config where config_name = "avatar_salt"';
+        var avatar_salt;
+        Exporter.connection.query(query_avatar_salt,
+                                  function(err, salt_rows) {
+                                      if (err) {
+                                          Exporter.error(err);
+                                          return callback(err);
+                                      };
+                                      salt_rows.forEach(function(salt_row) {
+                                          avatar_salt = salt_row.avatar_salt;
+                                      });
+                                  });
+        
         var query = 'SELECT '
             + prefix + 'users.user_id as _uid, '
             + prefix + 'users.username as _username, '
@@ -137,6 +102,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             return callback(err);
         }
 
+        
         Exporter.connection.query(query,
             function(err, rows) {
                 if (err) {
@@ -148,10 +114,36 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 var map = {};
                 rows.forEach(function(row) {
                     if (Exporter.config('custom').importThanksAsReputation != 0) {
-                        row._reputation = phpbb_num_thanks_received(callback, prefix, row._uid);
+                        query = "SELECT count(1) AS thanks_count FROM "
+                            + prefix + "thanks WHERE poster_id=" + row._uid;
+                        var thanks_count = 0;
+                        Exporter.connection.query(query,
+                                                  function(err, rs) {
+                                                      if (err) {
+                                                          Exporter.error(err);
+                                                          return callback(err);
+                                                      }
+                                                      rows.forEach(function(r) {
+                                                          thanks_count = r.thanks_count;
+                                                      });
+                                                  });
+                        row._reputation = thanks_count;
                     };
 
-                    row._banned = phpbb_is_banned(callback, prefix, row._uid);
+                    var is_banned = 0;
+                    query = "SELECT count(*) AS is_banned FROM " + prefix +
+                        "banlist WHERE ban_userid=" + row._uid;
+                    Exporter.connection.query(query,
+                                              function(err, rs) {
+                                                  if (err) {
+                                                      Exporter.error(err);
+                                                      return callback(err);
+                                                  }
+                                                  rows.forEach(function(r) {
+                                                      is_banned = r.is_banned;
+                                                  });
+                                              });
+                    row._banned = is_banned;
                     
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
@@ -184,7 +176,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 			if (match != null) {
 			    row._phpbb_avatar = match[1] + match[2];
 			}
-			row._phpbb_avatar_filename = row._phpbb_avatar_salt + '_' + row._phpbb_avatar;
+
+			row._phpbb_avatar_filename =  avatar_salt + '_' + row._phpbb_avatar;
 
 			// Read file from phpbb_avatart directory from module home subdirectory
 			fs.readFile(Exporter.config('custom').phpbbAvatarsUploadPath
@@ -196,6 +189,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 
 			    row._pictureBlob = pictureBlob;
 			});
+
 		    };
 
                     map[row._uid] = row;
