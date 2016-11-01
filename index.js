@@ -35,7 +35,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 	}
 
 	Exporter.config('custom', config.custom || {
-	    phpbbAvatarsUploadPath: __dirname + '/phpbb_avatars/'
+	    phpbbAvatarsUploadPath: __dirname + '/phpbb_avatars/',
+            importThanksAsReputation: 1
 	});
 	
         Exporter.connection = mysql.createConnection(_config);
@@ -72,7 +73,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'users.user_birthday as _birthday, '
 	    + prefix + 'users.user_avatar_type as _phpbb_avatar_type, '
 	    + prefix + 'users.user_avatar as _phpbb_avatar '
-	    
+
             + ' FROM ' + prefix + 'users '
             + 'WHERE ' + prefix + 'users.user_type <> 2 AND ' + prefix + 'users.user_type <> 1 '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
@@ -101,6 +102,21 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
+
+                    var thanks_count = 0;
+                    query_thanks_count = "SELECT count(1) AS thanks_count FROM " + prefix + "thanks WHERE poster_id=" + row._uid;
+                    Exporter.connection.query(query_thanks_count,
+                                              function(err, thanks_rows) {
+                                                  if (err) {
+                                                      Exporter.error(err);
+                                                      return callback(err);
+                                                  }
+                                                  thanks_rows.forEach(function(thanks_row) {
+                                                      thanks_count = thanks_row.thanks_count;
+                                                  });
+                                              });
+                    row._reputation = thanks_count;
+                    
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
                     row._signature = entities.decode(Exporter.truncateStr(row._signature || '', 150));
