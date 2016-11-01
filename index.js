@@ -63,13 +63,13 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 	    + prefix + 'config where config_name = "avatar_salt"';
         var avatar_salt;
         Exporter.connection.query(query_avatar_salt,
-                                  function(err, salt_rows) {
+                                  function(err, rs) {
                                       if (err) {
                                           Exporter.error(err);
                                           return callback(err);
                                       };
-                                      salt_rows.forEach(function(salt_row) {
-                                          avatar_salt = salt_row.avatar_salt;
+                                      rs.forEach(function(r) {
+                                          avatar_salt = r.avatar_salt;
                                       });
                                   });
         
@@ -123,7 +123,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                                                           Exporter.error(err);
                                                           return callback(err);
                                                       }
-                                                      rows.forEach(function(r) {
+                                                      rs.forEach(function(r) {
                                                           thanks_count = r.thanks_count;
                                                       });
                                                   });
@@ -139,7 +139,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                                                       Exporter.error(err);
                                                       return callback(err);
                                                   }
-                                                  rows.forEach(function(r) {
+                                                  rs.forEach(function(r) {
                                                       is_banned = r.is_banned;
                                                   });
                                               });
