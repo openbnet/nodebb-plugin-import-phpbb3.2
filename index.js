@@ -9,6 +9,27 @@ var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb]';
 
 (function(Exporter) {
+    var phpbb_avatar_salt_cached = "";
+
+    phpbb_avatar_salt = function(callback, prefix, uid) {
+        var query = 'SELECT config_value AS _phpbb_avatar_salt FROM '
+	    + prefix + 'config where config_name = "avatar_salt"';
+
+        if (phpbb_avatar_salt == "") {
+            Exporter.connection.query(query,
+                                      function(err, thanks_rows) {
+                                          if (err) {
+                                              Exporter.error(err);
+                                              return callback(err);
+                                          }
+                                          thanks_rows.forEach(function(thanks_row) {
+                                              phpbb_avatar_salt_cached = thanks_row.thanks_count;
+                                          });
+                                      });
+        };
+        return phpbb_avatar_salt_cached;
+    };
+        
     phpbb_num_thanks_received = function(callback, prefix, uid) {
         query = "SELECT count(1) AS thanks_count FROM "
             + prefix + "thanks WHERE poster_id=" + uid;
@@ -110,21 +131,13 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + 'WHERE ' + prefix + 'users.user_type <> 2 AND ' + prefix + 'users.user_type <> 1 '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
-	var query_config = 'SELECT config_value AS _phpbb_avatar_salt FROM '
-	    + prefix + 'config where config_name = "avatar_salt"';
-
-	var query_combined = 'SELECT * FROM '
-	    + '( ' + query + ' )'
-	    + ' CARTESIAN JOIN (' + query_config + ')'
-	    + ' as s';
-
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
             Exporter.error(err.error);
             return callback(err);
         }
 
-        Exporter.connection.query(query_combined,
+        Exporter.connection.query(query,
             function(err, rows) {
                 if (err) {
                     Exporter.error(err);
