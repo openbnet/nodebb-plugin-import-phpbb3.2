@@ -62,7 +62,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             //+ prefix + 'users.user_rank as _level, '
             + prefix + 'users.user_regdate as _joindate, '
             + prefix + 'users.user_email as _email, '
-            //+ prefix + 'banlist.ban_id as _banned '
             + prefix + 'users.user_sig as _signature, '
             + prefix + 'users.user_website as _website, '
             //+ prefix + 'users.USER_OCCUPATION as _occupation, '
@@ -118,6 +117,21 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                                               });
                         row._reputation = thanks_count;
                     };
+
+                    query_banned = "SELECT count(*) AS is_banned FROM " + prefix +
+                        "banlist WHERE ban_userid=" + row._uid;
+                    var is_banned = 0;
+                    Exporter.connection.query(query_banned,
+                                              function(err, banned_rows) {
+                                                  if (err) {
+                                                      Exporter.error(err);
+                                                      return callback(err);
+                                                  }
+                                                  banned_rows.forEach(function(banned_rows) {
+                                                      is_banned = banned_rows.is_banned;
+                                                  });
+                                              });
+                    row._banned = is_banned;
                     
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
