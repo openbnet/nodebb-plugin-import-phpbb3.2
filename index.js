@@ -9,6 +9,39 @@ var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb]';
 
 (function(Exporter) {
+    phpbb_num_thanks_received = function(callback, prefix, uid) {
+        query = "SELECT count(1) AS thanks_count FROM "
+            + prefix + "thanks WHERE poster_id=" + uid;
+        var thanks_count = 0;
+        Exporter.connection.query(query,
+                                  function(err, thanks_rows) {
+                                      if (err) {
+                                          Exporter.error(err);
+                                          return callback(err);
+                                      }
+                                      thanks_rows.forEach(function(thanks_row) {
+                                          thanks_count = thanks_row.thanks_count;
+                                      });
+                                  });
+        return thanks_count;
+    };
+
+    phpbb_is_banned = function(callback, prefix, uid) {
+        query = "SELECT count(*) AS is_banned FROM " + prefix +
+            "banlist WHERE ban_userid=" + uid;
+        var is_banned = 0;
+        Exporter.connection.query(query,
+                                  function(err, banned_rows) {
+                                      if (err) {
+                                          Exporter.error(err);
+                                          return callback(err);
+                                      }
+                                      banned_rows.forEach(function(banned_rows) {
+                                          is_banned = banned_rows.is_banned;
+                                      });
+                                  });
+        return is_banned;
+    };
 
     Exporter.setup = function(config, callback) {
         Exporter.log('setup');
@@ -102,36 +135,10 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 var map = {};
                 rows.forEach(function(row) {
                     if (Exporter.config('custom').importThanksAsReputation != 0) {
-                        query_thanks_count = "SELECT count(1) AS thanks_count FROM "
-                            + prefix + "thanks WHERE poster_id=" + row._uid;
-                        var thanks_count = 0;
-                        Exporter.connection.query(query_thanks_count,
-                                              function(err, thanks_rows) {
-                                                  if (err) {
-                                                      Exporter.error(err);
-                                                      return callback(err);
-                                                  }
-                                                  thanks_rows.forEach(function(thanks_row) {
-                                                      thanks_count = thanks_row.thanks_count;
-                                                  });
-                                              });
-                        row._reputation = thanks_count;
+                        row._reputation = phpbb_num_thanks_received(callback, prefix, row._uid);
                     };
 
-                    query_banned = "SELECT count(*) AS is_banned FROM " + prefix +
-                        "banlist WHERE ban_userid=" + row._uid;
-                    var is_banned = 0;
-                    Exporter.connection.query(query_banned,
-                                              function(err, banned_rows) {
-                                                  if (err) {
-                                                      Exporter.error(err);
-                                                      return callback(err);
-                                                  }
-                                                  banned_rows.forEach(function(banned_rows) {
-                                                      is_banned = banned_rows.is_banned;
-                                                  });
-                                              });
-                    row._banned = is_banned;
+                    row._banned = phpbb_is_banned(callback, prefix, row._uid);
                     
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
