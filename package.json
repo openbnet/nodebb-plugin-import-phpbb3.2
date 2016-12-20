@@ -1,14 +1,11 @@
 {
   "name": "nodebb-plugin-import-phpbb",
   "version": "0.1.5",
-  "description": "A phpBB2 to NodeBB data exporter",
+  "description": "A phpBB3.1 to NodeBB data exporter",
   "main": "./index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/belstgut/nodebb-plugin-import-phpbb"
+    "url": "https://github.com/jskorepa/nodebb-plugin-import-phpbb3.1"
   },
   "keywords": [
     "phpbb",
@@ -18,16 +15,19 @@
     "export",
     "import"
   ],
-  "author": {
-    "name": "psychobunny",
-    "email": "psycho.bunny@hotmail.com"
-  },
+  "authors": [
+    {
+      "name": "psychobunny",
+      "email": "psycho.bunny@hotmail.com"
+    },
+    {
+      "name": "jskorepa",
+      "email": "jakub@skorepa.info"
+    }
+  ],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/belstgut/nodebb-plugin-import-phpbb/issues"
-  },
-  "nbbpm": {
-    "index": false
+    "url": "https://github.com/jskorepa/nodebb-plugin-import-phpbb3.1/issues"
   },
   "dependencies": {
     "underscore": "~1.6.0",
