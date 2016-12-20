@@ -3,6 +3,10 @@
   "version": "0.1.5",
   "description": "A phpBB3.1 to NodeBB data exporter",
   "main": "./index.js",
+  "scripts": {
+    "build": "babel src --out-dir=build --source-maps=inline",
+    "build-watch": "babel src -v --out-dir=build --watch --source-maps=inline"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/jskorepa/nodebb-plugin-import-phpbb3.1"
@@ -29,12 +33,30 @@
   "bugs": {
     "url": "https://github.com/jskorepa/nodebb-plugin-import-phpbb3.1/issues"
   },
+  "babel": {
+    "presets": [
+      [
+        "env",
+        {
+          "targets": {
+            "node": 6
+          }
+        }
+      ]
+    ],
+    "env": "node"
+  },
   "dependencies": {
-    "underscore": "~1.6.0",
-    "fs-extra": "~0.11.0",
     "async": "~0.9.0",
+    "fs-extra": "~0.11.0",
+    "html-entities": "",
+    "lodash": "^4.17.2",
     "marked": "~0.3.2",
     "mysql": "~2.4.2",
-    "html-entities": ""
+    "underscore": "~1.6.0"
+  },
+  "devDependencies": {
+    "babel-cli": "^6.18.0",
+    "babel-preset-env": "^1.1.4"
   }
 }
