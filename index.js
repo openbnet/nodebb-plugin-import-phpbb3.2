@@ -1,9 +1,7 @@
+
 var async = require('async');
 var mysql = require('mysql');
 var _ = require('underscore');
-var fs = require('fs');
-var Entities = require('html-entities').AllHtmlEntities;
-var entities = new Entities();
 var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb]';
 
@@ -25,20 +23,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         Exporter.config(_config);
         Exporter.config('prefix', config.prefix || config.tablePrefix || '' /* phpbb_ ? */ );
 
-	if (config.custom && typeof config.custom === 'string') {
-	    try {
-		config.custom = JSON.parse(config.custom)
-	    } catch (e) {
-		config.custom = null
-	    }
-	}
-
-	Exporter.config('custom', config.custom || {
-	    phpbbAvatarsUploadPath: __dirname + '/phpbb_avatars/',
-            phpbbAvatarSalt: '',
-            importThanksAsReputation: 1
-	});
-	
         Exporter.connection = mysql.createConnection(_config);
         Exporter.connection.connect();
 
@@ -51,28 +35,9 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
     Exporter.getPaginatedUsers = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
 
-        phpbb_num_thanks_received = 0;
-        get_phpbb_num_thanks_received = function(callback, prefix, uid) {
-        };
-
         var err;
         var prefix = Exporter.config('prefix');
         var startms = +new Date();
-
-        var query_avatar_salt = 'SELECT config_value AS avatar_salt FROM '
-	    + prefix + 'config where config_name = "avatar_salt"';
-        var avatar_salt;
-        Exporter.connection.query(query_avatar_salt,
-                                  function(err, rs) {
-                                      if (err) {
-                                          Exporter.error(err);
-                                          return callback(err);
-                                      };
-                                      rs.forEach(function(r) {
-                                          avatar_salt = r.avatar_salt;
-                                      });
-                                  });
-        
         var query = 'SELECT '
             + prefix + 'users.user_id as _uid, '
             + prefix + 'users.username as _username, '
@@ -80,21 +45,22 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'users.user_email as _registrationEmail, '
             //+ prefix + 'users.user_rank as _level, '
             + prefix + 'users.user_regdate as _joindate, '
-            + prefix + 'users.user_email as _email, '
-            + prefix + 'users.user_sig as _signature, '
-            + prefix + 'users.user_website as _website, '
-            //+ prefix + 'users.USER_OCCUPATION as _occupation, '
-            + prefix + 'users.user_from as _location, '
-            //+ prefix + 'users.USER_TITLE as _title, '
-            //+ prefix + 'users.USER_RATING as _reputation, '
-            //+ prefix + 'users.USER_TOTAL_RATES as _profileviews, '
-            + prefix + 'users.user_birthday as _birthday, '
-	    + prefix + 'users.user_avatar_type as _phpbb_avatar_type, '
-	    + prefix + 'users.user_avatar as _phpbb_avatar '
+            + prefix + 'users.user_email as _email '
+            //+ prefix + 'banlist.ban_id as _banned '
+            //+ prefix + 'USER_PROFILE.USER_SIGNATURE as _signature, '
+            //+ prefix + 'USER_PROFILE.USER_HOMEPAGE as _website, '
+            //+ prefix + 'USER_PROFILE.USER_OCCUPATION as _occupation, '
+            //+ prefix + 'USER_PROFILE.USER_LOCATION as _location, '
+            //+ prefix + 'USER_PROFILE.USER_AVATAR as _picture, '
+            //+ prefix + 'USER_PROFILE.USER_TITLE as _title, '
+            //+ prefix + 'USER_PROFILE.USER_RATING as _reputation, '
+            //+ prefix + 'USER_PROFILE.USER_TOTAL_RATES as _profileviews, '
+            //+ prefix + 'USER_PROFILE.USER_BIRTHDAY as _birthday '
 
-            + ' FROM ' + prefix + 'users '
-            + 'WHERE ' + prefix + 'users.user_type <> 2 AND ' + prefix + 'users.user_type <> 1 '
+            + 'FROM ' + prefix + 'users '
+            + 'WHERE ' + prefix + 'users.user_id = ' + prefix + 'users.user_id '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
+
 
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
@@ -102,7 +68,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             return callback(err);
         }
 
-        
         Exporter.connection.query(query,
             function(err, rows) {
                 if (err) {
@@ -113,41 +78,9 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-                    if (Exporter.config('custom').importThanksAsReputation != 0) {
-                        query = "SELECT count(1) AS thanks_count FROM "
-                            + prefix + "thanks WHERE poster_id=" + row._uid;
-                        var thanks_count = 0;
-                        Exporter.connection.query(query,
-                                                  function(err, rs) {
-                                                      if (err) {
-                                                          Exporter.error(err);
-                                                          return callback(err);
-                                                      }
-                                                      rs.forEach(function(r) {
-                                                          thanks_count = r.thanks_count;
-                                                      });
-                                                  });
-                        row._reputation = thanks_count;
-                    };
-
-                    var is_banned = 0;
-                    query = "SELECT count(*) AS is_banned FROM " + prefix +
-                        "banlist WHERE ban_userid=" + row._uid;
-                    Exporter.connection.query(query,
-                                              function(err, rs) {
-                                                  if (err) {
-                                                      Exporter.error(err);
-                                                      return callback(err);
-                                                  }
-                                                  rs.forEach(function(r) {
-                                                      is_banned = r.is_banned;
-                                                  });
-                                              });
-                    row._banned = is_banned;
-                    
                     // nbb forces signatures to be less than 150 chars
                     // keeping it HTML see https://github.com/akhoury/nodebb-plugin-import#markdown-note
-                    row._signature = entities.decode(Exporter.truncateStr(row._signature || '', 150));
+                    row._signature = Exporter.truncateStr(row._signature || '', 150);
 
                     // from unix timestamp (s) to JS timestamp (ms)
                     row._joindate = ((row._joindate || 0) * 1000) || startms;
@@ -155,42 +88,9 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                     // lower case the email for consistency
                     row._email = (row._email || '').toLowerCase();
 
-                    // location
-                    row._location = (row._location || '').trim();
-
-                    // birthday
-                    row._birthday = (row._birthday || '').split(' ').join('').replace(/(\d{2})-(\d{2})-(\d{4})/, "$2/$1/$3");
-
                     // I don't know about you about I noticed a lot my users have incomplete urls, urls like: http://
+                    row._picture = Exporter.validateUrl(row._picture);
                     row._website = Exporter.validateUrl(row._website);
-
-		    // User avatar is a remote file
-		    if (row._phpbb_avatar_type == 2) {
-			row._picture = Exporter.validateUrl(row._phpbb_avatar);
-		    }
-
-		    // User avatar is an uploaded file
-		    if (row._phpbb_avatar_type == 1) {
-			var re = /^(.*)_[1234567890]+?(\..+?)$/g;
-			var match = re.exec(row._phpbb_avatar);
-			if (match != null) {
-			    row._phpbb_avatar = match[1] + match[2];
-			}
-
-			row._phpbb_avatar_filename =  avatar_salt + '_' + row._phpbb_avatar;
-
-			// Read file from phpbb_avatart directory from module home subdirectory
-			fs.readFile(Exporter.config('custom').phpbbAvatarsUploadPath
-				    + row._phpbb_avatar_filename, function (err, pictureBlob) {
-			    if (err) {
-				Exporter.warn('Cannot import avatar for user ' + row._uid + " - "
-					      + err);
-			    }
-
-			    row._pictureBlob = pictureBlob;
-			});
-
-		    };
 
                     map[row._uid] = row;
                 });
@@ -199,53 +99,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             });
     };
 
-    Exporter.getMessages = function(callback) {
-        return Exporter.getPaginatedMessages(0, -1, callback);
-    };
-    Exporter.getPaginatedMessages = function(start, limit, callback) {
-        callback = !_.isFunction(callback) ? noop : callback;
-
-        var err;
-        var prefix = Exporter.config('prefix');
-        var startms = +new Date();
-        var query = 'SELECT '
-            + prefix + 'privmsgs.msg_id as _mid, '
-            + prefix + 'privmsgs.author_id as _fromuid, '
-            + prefix + 'privmsgs.to_address as _touid, '
-            + prefix + 'privmsgs.message_text as _content, '
-            + prefix + 'privmsgs.message_time as _timestamp '
-            + 'FROM ' + prefix + 'privmsgs '
-            + 'ORDER BY ' + prefix + 'privmsgs.message_time '
-            + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
-
-            if(!Exporter.connection) {
-                err = {error: 'MySQL connection is not setup. Run setup(config) first'};
-                Exporter.error(err.error);
-                return callback(err);
-            }
-
-            Exporter.connection.query(query,
-                function(err, rows) {
-                    if (err) {
-                        Exporter.error(err);
-                        return callback(err);
-                    }
-
-                    var map = {};
-                    rows.forEach(function(row) {
-                        row._touid = row._touid.substr(2);
-                        row._content = entities.decode(row._content);
-                        row._timestamp = ((row._timestamp || 0) * 1000) || startms;
-
-                        map[row._mid] = row;
-                    });
-
-                    callback(null, map);
-                });
-    };
-
     Exporter.getCategories = function(callback) {
-        return Exporter.getPaginatedCategories(0, -1, callback);    
+        return Exporter.getPaginatedCategories(0, -1, callback);
     };
     Exporter.getPaginatedCategories = function(start, limit, callback) {
         callback = !_.isFunction(callback) ? noop : callback;
@@ -256,11 +111,11 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
         var query = 'SELECT '
             + prefix + 'forums.forum_id as _cid, '
             + prefix + 'forums.forum_name as _name, '
-            + prefix + 'forums.forum_desc as _description '
+            + prefix + 'forums.forum_desc as _description, '
+			+ prefix + 'forums.forum_parents as _parentCid '
             + 'FROM ' + prefix + 'forums '
-            + 'WHERE ' + prefix + 'forums.forum_type <> 0 '
             +  (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
-            
+
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
             Exporter.error(err.error);
@@ -277,9 +132,14 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-                    row._name = entities.decode(row._name || 'Untitled Category');
-                    row._description = entities.decode(row._description || 'No decscription available');
+                    row._name = row._name || 'Untitled Category';
+                    row._description = row._description || '';
                     row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+					try {
+						row._parentCid = Number(row._parentCid.split(':')[3].split(';')[0])
+					} catch(e) {
+						row._parentCid = undefined
+					}
 
                     map[row._cid] = row;
                 });
@@ -313,7 +173,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'topics.topic_time as _timestamp, '
 
             // maybe use that to skip
-            + prefix + 'topics.topic_approved as _approved, '
+            // + prefix + 'topics.topic_approved as _approved, '
 
             + prefix + 'topics.topic_status as _status, '
 
@@ -329,7 +189,6 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             // see
             + 'WHERE ' + prefix + 'topics.topic_first_post_id=' + prefix + 'posts.post_id '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
-
 
         if (!Exporter.connection) {
             err = {error: 'MySQL connection is not setup. Run setup(config) first'};
@@ -347,9 +206,8 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
                 //normalize here
                 var map = {};
                 rows.forEach(function(row) {
-                    row._title = entities.decode(row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled');
+                    row._title = row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled';
                     row._timestamp = ((row._timestamp || 0) * 1000) || startms;
-                    row._content = entities.decode(row._content);
 
                     map[row._tid] = row;
                 });
@@ -358,6 +216,21 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             });
     };
 
+	var getTopicsMainPids = function(callback) {
+		if (Exporter._topicsMainPids) {
+			return callback(null, Exporter._topicsMainPids);
+		}
+		Exporter.getPaginatedTopics(0, -1, function(err, topicsMap) {
+			if (err) return callback(err);
+
+			Exporter._topicsMainPids = {};
+			Object.keys(topicsMap).forEach(function(_tid) {
+				var topic = topicsMap[_tid];
+				Exporter._topicsMainPids[topic.topic_first_post_id] = topic._tid;
+			});
+			callback(null, Exporter._topicsMainPids);
+		});
+	};
     Exporter.getPosts = function(callback) {
         return Exporter.getPaginatedPosts(0, -1, callback);
     };
@@ -376,16 +249,15 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             + prefix + 'posts.post_subject as _subject, '
 
             + prefix + 'posts.post_text as _content, '
-            + prefix + 'posts.poster_id as _uid, '
+            + prefix + 'posts.poster_id as _uid '
 
             // maybe use this one to skip
-            + prefix + 'posts.post_approved as _approved '
+            //+ prefix + 'posts.post_approved as _approved '
 
             + 'FROM ' + prefix + 'posts '
 
-		    // remove first posts
-            + 'WHERE ' + prefix + 'posts.topic_id > 0 AND ' + prefix + 'posts.post_id NOT IN (SELECT ' + prefix + 'topics.topic_first_post_id '
-                + 'FROM ' + prefix + 'topics) '
+		    // the ones that are topics main posts are filtered below
+            + 'WHERE ' + prefix + 'posts.topic_id > 0 '
             + (start >= 0 && limit >= 0 ? 'LIMIT ' + start + ',' + limit : '');
 
         if (!Exporter.connection) {
@@ -400,18 +272,21 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
 					Exporter.error(err);
 					return callback(err);
 				}
+				getTopicsMainPids(function(err, mpids) {
+					//normalize here
+					var map = {};
+					rows.forEach(function (row) {
+						// make it's not a topic
+						if (! mpids[row._pid]) {
+							row._content = row._content || '';
+							console.log(row._content)
+							row._timestamp = ((row._timestamp || 0) * 1000) || startms;
+							map[row._pid] = row;
+						}
+					});
 
-				//normalize here
-				var map = {};
-				rows.forEach(function (row) {
-					// make it's not a topic
-					row._content = entities.decode(row._content || '');
-					row._timestamp = ((row._timestamp || 0) * 1000) || startms;
-					map[row._pid] = row;
+					callback(null, map);
 				});
-
-                callback(null, map);
-
 			});
 
     };
@@ -446,7 +321,7 @@ var logPrefix = '[nodebb-plugin-import-phpbb]';
             }
         ], callback);
     };
-    
+
     Exporter.paginatedTestrun = function(config, callback) {
         async.series([
             function(next) {
