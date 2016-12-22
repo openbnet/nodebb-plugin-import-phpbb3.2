@@ -1,10 +1,44 @@
 var async = require('async');
 var mysql = require('mysql');
-var _ = require('underscore');
+var _ = require('lodash/fp');
 var noop = function(){};
 var logPrefix = '[nodebb-plugin-import-phpbb3.1]';
+const http = require('http')
+const process = require('process')
+const path = require('path')
+const fs = require('fs')
+const mkdirp = require('mkdirp')
 
 const Exporter = module.exports
+
+const fixBB = (bb) => {
+	const fixed = bb
+	.replace(/<!--[^>]+-->/, '') // html comment
+	.replace(/\[(\/?[^:]+):[^\]]+\]/ig, '[$1]') // arg-less bb code
+	.replace(/\[(\/?[^=]+)=([^:]+):[^\]]+\]/ig, '[$1=$2]') // with args
+
+	return fixed
+}
+
+const getFile = (url, output) => new Promise((resolve, reject) => {
+	const dest = path.join(process.cwd(),'public','uploads','_imported_attachments',output)
+	mkdirp(path.dirname(dest), function (err) {
+		if (err) return reject(err)
+
+		Exporter.log('Downloading',url,'to',dest)
+
+		var file = fs.createWriteStream(dest);
+		var request = http.get(url, function(response) {
+			response.pipe(file);
+			file.on('finish', function() {
+				file.close(resolve);
+			})
+		}).on('error', function(err) {
+			fs.unlink(dest);
+			reject(err.message)
+		})
+	});
+})
 
 const executeQuery = (query) => new Promise((resolve, reject) => {
 	Exporter.connection.query(query, (err, rows) => {
@@ -21,7 +55,8 @@ Exporter.setup = (config) => {
 		user: config.dbuser || config.user || 'root',
 		password: config.dbpass || config.pass || config.password || '',
 		port: config.dbport || config.port || 3306,
-		database: config.dbname || config.name || config.database || 'phpbb'
+		database: config.dbname || config.name || config.database || 'phpbb',
+		attachment_url: config.custom ? config.custom.attachment_url : false,
 	};
 
 	Exporter.config(_config);
@@ -48,6 +83,7 @@ Exporter.getPaginatedUsers = async (start, limit) => {
 		+ prefix + 'users.user_email as _registrationEmail, '
 		//+ prefix + 'users.user_rank as _level, '
 		+ prefix + 'users.user_regdate as _joindate, '
+		+ prefix + 'users.user_posts as _post_count, '
 		+ prefix + 'users.user_email as _email '
 		//+ prefix + 'banlist.ban_id as _banned '
 		//+ prefix + 'USER_PROFILE.USER_SIGNATURE as _signature, '
@@ -71,7 +107,8 @@ Exporter.getPaginatedUsers = async (start, limit) => {
 		throw err
 	}
 
-	const rows = await executeQuery(query)
+	let rows = await executeQuery(query)
+	rows = rows.filter(r => r._post_count > 0)
 
 	//normalize here
 	var map = {};
@@ -121,7 +158,7 @@ Exporter.getPaginatedCategories = async (start, limit) => {
 
 	//normalize here
 	var map = {};
-	rows.forEach(function(row) {
+	for(const row of rows) {
 		row._name = row._name || 'Untitled Category';
 		row._description = row._description || '';
 		row._timestamp = ((row._timestamp || 0) * 1000) || startms;
@@ -132,10 +169,41 @@ Exporter.getPaginatedCategories = async (start, limit) => {
 		}
 
 		map[row._cid] = row;
-	});
+	}
 
 	return map
 };
+
+const processAttachments = async (content, pid) => {
+	const prefix = Exporter.config('prefix');
+	let attachments = (await executeQuery(`
+		SELECT * FROM ${prefix}attachments WHERE post_msg_id = ${pid}
+	`)).map(a => ({
+		thumbnail: a.thumbnail,
+		orig_filename: a.real_filename,
+		url: "/uploads/_imported_attachments/"+a.attach_id+'_'+a.real_filename,
+		mimetype: a.mimetype,
+	}))
+	console.log('processing', attachments)
+	for(const at_id in attachments) {
+		console.log('b',at_id)
+		const at = attachments[at_id]
+		if(!at.thumbnail) continue
+		const prev_content = content
+		content = content.replace(new RegExp(`\\[attachment=${at_id}\\]([^\\[]*)\\[/attachment\\]`,'gi'),`<img src="${at.url}"/>`)
+		if(content !== prev_content) {
+			at.done = true
+		} else {
+			at.done = false
+		}
+	}
+	attachments = attachments.filter(a => console.log(a) || !a.done)
+	if(attachments.length > 0) {
+		content += '\n\n## Přílohy:\n\n'
+		content += attachments.filter(a => !a.done).reduce((p, a) => p+` - [${a.orig_filename}](${a.url})\n`, '')
+	}
+	return content
+}
 
 Exporter.getTopics = () => Exporter.getPaginatedTopics(0, -1)
 
@@ -184,15 +252,23 @@ Exporter.getPaginatedTopics = async (start, limit) => {
 	}
 
 	const rows = await executeQuery(query)
+	console.log('rows', rows)
 
 	//normalize here
 	var map = {};
-	rows.forEach(function(row) {
+	let topicCount = 0;
+	for(const row of rows) {
+		topicCount++
+		Exporter.log(`Topic ${topicCount} out of ${rows.length}`)
+		row._content = fixBB(row._content)
+		row._content = await processAttachments(row._content, row._pid)
+		console.log(row)
+
 		row._title = row._title ? row._title[0].toUpperCase() + row._title.substr(1) : 'Untitled';
 		row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 
 		map[row._tid] = row;
-	});
+	}
 
 	return map
 };
@@ -206,15 +282,35 @@ var getTopicsMainPids = async () => {
 	Exporter._topicsMainPids = {};
 	Object.keys(topicsMap).forEach(function(_tid) {
 		var topic = topicsMap[_tid];
-		Exporter._topicsMainPids[topic.topic_first_post_id] = topic._tid;
+		Exporter._topicsMainPids[topic._pid] = topic._tid;
 	});
 	return Exporter._topicsMainPids
 };
 
 Exporter.getPosts = () => Exporter.getPaginatedPosts(0, -1)
 
+;(() => {
+	let attachmentsDownloaded = false
+	Exporter.downloadAttachments = async () => {
+		if(!Exporter.config().attachment_url) return
+		if(attachmentsDownloaded) return
+		attachmentsDownloaded = true
+		Exporter.log('Downloading attachments')
+		const prefix = Exporter.config('prefix');
+
+		const attachments = await executeQuery(`
+			SELECT * FROM ${prefix}attachments
+		`)
+		await Promise.all(attachments.map(async (a) => getFile(
+			Exporter.config().attachment_url + a.physical_filename,
+			a.attach_id+'_'+a.real_filename
+		)))
+	}
+})()
+
 Exporter.getPaginatedPosts = async (start, limit) => {
 	Exporter.log('getPaginatedPosts')
+	await Exporter.downloadAttachments()
 	var err;
 	var prefix = Exporter.config('prefix');
 	var startms = +new Date();
@@ -245,20 +341,22 @@ Exporter.getPaginatedPosts = async (start, limit) => {
 	}
 
 	const rows = await executeQuery(query)
-
 	const mpids = await getTopicsMainPids()
 
 	//normalize here
 	var map = {};
-	rows.forEach(function (row) {
+	let currentPostNum = 0
+	for(const row of rows) {
+		currentPostNum++
+		Exporter.log(`Post ${currentPostNum} out of ${rows.length}`)
 		// make it's not a topic
 		if (! mpids[row._pid]) {
-			row._content = row._content || '';
-			console.log(row._content)
+			row._content = fixBB(row._content)
+			row._content = await processAttachments(row._content, row._pid)
 			row._timestamp = ((row._timestamp || 0) * 1000) || startms;
 			map[row._pid] = row;
 		}
-	});
+	}
 	return map
 };
 
