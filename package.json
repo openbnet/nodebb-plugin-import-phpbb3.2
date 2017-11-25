@@ -1,7 +1,7 @@
 {
-  "name": "nodebb-plugin-import-phpbb",
-  "version": "0.1.5",
-  "description": "A phpBB3.1 to NodeBB data exporter",
+  "name": "nodebb-plugin-import-phpbb3.2",
+  "version": "0.2.0",
+  "description": "A phpBB3.2 to NodeBB data exporter",
   "main": "./index.js",
   "scripts": {
     "build": "babel src --out-dir=build --source-maps=inline",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jskorepa/nodebb-plugin-import-phpbb3.1"
+    "url": "https://github.com/RoPP/nodebb-plugin-import-phpbb3.2"
   },
   "keywords": [
     "phpbb",
@@ -31,7 +31,7 @@
   ],
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/jskorepa/nodebb-plugin-import-phpbb3.1/issues"
+    "url": "https://github.com/RoPP/nodebb-plugin-import-phpbb3.2/issues"
   },
   "babel": {
     "presets": [
