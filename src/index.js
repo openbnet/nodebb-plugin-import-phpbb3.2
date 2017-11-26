@@ -29,7 +29,7 @@ const fixBB = (bb) => {
 }
 
 const getFile = (url, output) => new Promise((resolve, reject) => {
-  const dest = path.join(process.cwd(), 'public', 'uploads', '_imported_attachments', output)
+  const dest = path.join(process.cwd(), 'public', 'uploads', 'phpbb', output)
   mkdirp(path.dirname(dest), function (err) {
     if (err) return reject(err)
 
@@ -75,10 +75,6 @@ Exporter.setup = (config) => {
 
   return Exporter.config()
 }
-
-Exporter.getUsers = function () {
-  return Exporter.getPaginatedUsers(0, -1);
-};
 
 Exporter.getPaginatedUsers = async (start, limit) => {
   Exporter.log('getPaginatedUsers')
@@ -142,8 +138,6 @@ Exporter.getPaginatedUsers = async (start, limit) => {
   return map
 };
 
-Exporter.getCategories = () => Exporter.getPaginatedCategories(0, -1)
-
 Exporter.getPaginatedCategories = async (start, limit) => {
   Exporter.log('getPaginatedCategories')
   var err;
@@ -199,8 +193,6 @@ const processAttachments = async (content, pid) => {
   }
   return content
 }
-
-Exporter.getTopics = () => Exporter.getPaginatedTopics(0, -1)
 
 Exporter.getPaginatedTopics = async (start, limit) => {
   Exporter.log('getPaginatedTopics')
@@ -282,26 +274,24 @@ var getTopicsMainPids = async () => {
   return Exporter._topicsMainPids
 };
 
-Exporter.getPosts = () => Exporter.getPaginatedPosts(0, -1)
+(() => {
+  let attachmentsDownloaded = false
+  Exporter.downloadAttachments = async () => {
+    if (!Exporter.config().attachment_url) return
+    if (attachmentsDownloaded) return
+    attachmentsDownloaded = true
+    Exporter.log('Downloading attachments')
+    const prefix = Exporter.config('prefix');
 
-  ; (() => {
-    let attachmentsDownloaded = false
-    Exporter.downloadAttachments = async () => {
-      if (!Exporter.config().attachment_url) return
-      if (attachmentsDownloaded) return
-      attachmentsDownloaded = true
-      Exporter.log('Downloading attachments')
-      const prefix = Exporter.config('prefix');
-
-      const attachments = await executeQuery(`
+    const attachments = await executeQuery(`
 			SELECT * FROM ${prefix}attachments
 		`)
-      await Promise.all(attachments.map(async (a) => getFile(
-        Exporter.config().attachment_url + a.physical_filename,
-        a.attach_id + '_' + a.real_filename
-      )))
-    }
-  })()
+    await Promise.all(attachments.map(async (a) => getFile(
+      Exporter.config().attachment_url + a.physical_filename,
+      a.attach_id + '_' + a.real_filename
+    )))
+  }
+})()
 
 Exporter.getPaginatedPosts = async (start, limit) => {
   Exporter.log('getPaginatedPosts')
@@ -360,15 +350,6 @@ Exporter.teardown = () => {
   Exporter.connection.end();
 
   Exporter.log('Done');
-};
-
-Exporter.testrun = async (config) => {
-  await Exporter.setup(config)
-  await Exporter.getUsers()
-  await Exporter.getCategories()
-  await Exporter.getTopics()
-  await Exporter.getPosts()
-  await Exporter.teardown()
 };
 
 Exporter.paginatedTestrun = async (config) => {
