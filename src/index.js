@@ -13,10 +13,18 @@ const Exporter = module.exports
 
 const fixBB = (bb) => {
   const fixed = bb
+    .replace(/<s>([\w\W]*?)<\/s>/mig, '$1')
+    .replace(/<e>([\w\W]*?)<\/e>/mig, '$1')
+    .replace(/<U>([\w\W]*?)<\/U>/mig, '$1')
+    .replace(/<B>([\w\W]*?)<\/B>/mig, '$1')
+    .replace(/<r>([\w\W]*?)<\/r>/mig, '$1')
+    .replace(/<t>([\w\W]*?)<\/t>/mig, '$1')
+    .replace(/<quote.*>([\w\W]*?)<\/quote>/mig, '$1')
+    .replace(/<color.+?>([\w\W]*?)<\/color>/mig, '$1')
+    .replace(/<link_text.+?>([\w\W]*?)<\/link_text>/mig, '$1')
+    .replace(/<url.+?>([\w\W]*?)<\/url>/mig, '$1')
+    .replace(/<attachment.+?>([\w\W]*?)<\/attachment>/mig, '$1')
     .replace(/<!--[^>]+-->/, '') // html comment
-    .replace(/\[(\/?[^:]+):[^\]]+\]/ig, '[$1]') // arg-less bb code
-    .replace(/\[(\/?[^=]+)=([^:]+):[^\]]+\]/ig, '[$1=$2]') // with args
-
   return fixed
 }
 
@@ -71,6 +79,7 @@ Exporter.setup = (config) => {
 Exporter.getUsers = function () {
   return Exporter.getPaginatedUsers(0, -1);
 };
+
 Exporter.getPaginatedUsers = async (start, limit) => {
   Exporter.log('getPaginatedUsers')
   var err;
@@ -179,28 +188,14 @@ const processAttachments = async (content, pid) => {
   let attachments = (await executeQuery(`
 		SELECT * FROM ${prefix}attachments WHERE post_msg_id = ${pid}
 	`)).map(a => ({
-      thumbnail: a.thumbnail,
       orig_filename: a.real_filename,
-      url: "/uploads/_imported_attachments/" + a.attach_id + '_' + a.real_filename,
-      mimetype: a.mimetype,
+      url: "/uploads/phpbb/" + a.physical_filename + '.' + a.extension,
     }))
   console.log('processing', attachments)
-  for (const at_id in attachments) {
-    console.log('b', at_id)
-    const at = attachments[at_id]
-    if (!at.thumbnail) continue
-    const prev_content = content
-    content = content.replace(new RegExp(`\\[attachment=${at_id}\\]([^\\[]*)\\[/attachment\\]`, 'gi'), `<img src="${at.url}"/>`)
-    if (content !== prev_content) {
-      at.done = true
-    } else {
-      at.done = false
-    }
-  }
-  attachments = attachments.filter(a => console.log(a) || !a.done)
-  if (attachments.length > 0) {
-    content += '\n\n## Přílohy:\n\n'
-    content += attachments.filter(a => !a.done).reduce((p, a) => p + ` - [${a.orig_filename}](${a.url})\n`, '')
+  for (const att of attachments) {
+    content = content.replace(
+      new RegExp(`\\[attachment.+\\]${att.orig_filename}\\[/attachment\\]`, 'g'), `![${att.orig_filename}](${att.url})`
+    )
   }
   return content
 }
