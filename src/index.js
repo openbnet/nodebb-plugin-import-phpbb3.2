@@ -23,6 +23,7 @@ const fixBB = (bb) => {
     .replace(/<color.+?>([\w\W]*?)<\/color>/mig, '$1')
     .replace(/<link_text.+?>([\w\W]*?)<\/link_text>/mig, '$1')
     .replace(/<url.+?>([\w\W]*?)<\/url>/mig, '$1')
+    .replace(/<emoji.+?>([\w\W]*?)<\/emoji>/mig, '$1')
     .replace(/<attachment.+?>([\w\W]*?)<\/attachment>/mig, '$1')
     .replace(/<!--[^>]+-->/, '') // html comment
   return fixed
